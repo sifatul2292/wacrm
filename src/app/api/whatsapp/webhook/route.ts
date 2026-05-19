@@ -663,16 +663,19 @@ async function findOrCreateContact(
 }
 
 async function findOrCreateConversation(userId: string, contactId: string) {
-  // Look for existing conversation
-  const { data: existing, error: findError } = await supabaseAdmin()
+  // Look for existing conversation — use limit(1) so duplicate rows
+  // (created during earlier webhook retries) don't cause .single() to
+  // error and accidentally spawn yet another conversation.
+  const { data: rows, error: findError } = await supabaseAdmin()
     .from('conversations')
     .select('*')
     .eq('user_id', userId)
     .eq('contact_id', contactId)
-    .single()
+    .order('created_at', { ascending: true })
+    .limit(1)
 
-  if (!findError && existing) {
-    return existing
+  if (!findError && rows && rows.length > 0) {
+    return rows[0]
   }
 
   // Create new conversation
