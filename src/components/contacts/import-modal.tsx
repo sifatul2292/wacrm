@@ -84,23 +84,79 @@ function parseCsvLine(line: string, delimiter: string): string[] {
   return values
 }
 
+// Heuristic: does a string look like a phone number?
+// Matches BD local (01XXXXXXXXX), E.164 (8801XXXXXXXXX), and generic 7-15 digit numbers.
+function looksLikePhone(val: string): boolean {
+  const digits = val.replace(/\D/g, '')
+  return digits.length >= 7 && digits.length <= 15 && !/^20\d{2}/.test(digits) // exclude years like 2026...
+}
+
+// Scan data rows to find which column index most consistently holds phone numbers.
+function detectPhoneColumnByData(dataLines: string[], delimiter: string): number {
+  const scores: Record<number, number> = {}
+  const sample = dataLines.slice(0, Math.min(20, dataLines.length))
+  for (const line of sample) {
+    const values = parseCsvLine(line, delimiter)
+    for (let i = 0; i < values.length; i++) {
+      const v = values[i].replace(/["']/g, '').trim()
+      if (looksLikePhone(v)) {
+        scores[i] = (scores[i] ?? 0) + 1
+      }
+    }
+  }
+  let best = -1, bestScore = 0
+  for (const [idx, score] of Object.entries(scores)) {
+    if (score > bestScore) { bestScore = score; best = Number(idx) }
+  }
+  // Require at least 30% of sampled rows to have phone-like value in that column
+  return bestScore >= Math.max(1, sample.length * 0.3) ? best : -1
+}
+
+// Similarly find name column: largest index before the phone column
+// whose values are mostly alphabetic (not dates/numbers).
+function detectNameColumnByData(dataLines: string[], delimiter: string, phoneIdx: number): number {
+  if (phoneIdx <= 0) return -1
+  const sample = dataLines.slice(0, Math.min(20, dataLines.length))
+  let best = -1, bestScore = 0
+  for (let i = 0; i < phoneIdx; i++) {
+    let score = 0
+    for (const line of sample) {
+      const val = parseCsvLine(line, delimiter)[i]?.replace(/["']/g, '').trim() ?? ''
+      if (val && /[a-zA-Zঀ-৿]{2,}/.test(val) && !/^\d{4}-\d{2}/.test(val)) score++
+    }
+    if (score > bestScore) { bestScore = score; best = i }
+  }
+  return bestScore >= Math.max(1, sample.length * 0.3) ? best : -1
+}
+
 function parseCSV(text: string): ParsedRow[] {
   // Strip UTF-8 BOM if present (Excel adds this)
   const clean = text.replace(/^﻿/, '').trim()
   const lines = clean.split(/\r?\n/)
-  if (lines.length < 2) return []
+  if (lines.length < 1) return []
 
   const delimiter = detectDelimiter(lines[0])
-  const headers = parseCsvLine(lines[0], delimiter).map((h) => h.toLowerCase().replace(/["']/g, '').trim())
 
-  const phoneIdx   = findColIdx(headers, PHONE_ALIASES)
-  if (phoneIdx === -1) return []
-  const nameIdx    = findColIdx(headers, NAME_ALIASES)
-  const emailIdx   = findColIdx(headers, EMAIL_ALIASES)
-  const companyIdx = findColIdx(headers, COMPANY_ALIASES)
+  // Try header-based detection first
+  const firstLineCells = parseCsvLine(lines[0], delimiter).map((h) => h.toLowerCase().replace(/["']/g, '').trim())
+  let phoneIdx   = findColIdx(firstLineCells, PHONE_ALIASES)
+  let nameIdx    = findColIdx(firstLineCells, NAME_ALIASES)
+  let emailIdx   = findColIdx(firstLineCells, EMAIL_ALIASES)
+  let companyIdx = findColIdx(firstLineCells, COMPANY_ALIASES)
+  let dataStartLine = 1
+
+  // Fallback: no header row — detect columns by data patterns
+  if (phoneIdx === -1) {
+    phoneIdx = detectPhoneColumnByData(lines, delimiter)
+    if (phoneIdx === -1) return []
+    nameIdx    = detectNameColumnByData(lines, delimiter, phoneIdx)
+    emailIdx   = -1
+    companyIdx = -1
+    dataStartLine = 0 // first line is data, not headers
+  }
 
   const rows: ParsedRow[] = []
-  for (let i = 1; i < lines.length; i++) {
+  for (let i = dataStartLine; i < lines.length; i++) {
     const line = lines[i].trim()
     if (!line) continue
 
@@ -109,6 +165,7 @@ function parseCSV(text: string): ParsedRow[] {
     const rawPhone = values[phoneIdx]?.replace(/["']/g, '').trim()
     if (!rawPhone) continue
     const phone = normalizePhone(rawPhone)
+    if (!phone || phone.length < 7) continue
 
     rows.push({
       phone,
