@@ -12,6 +12,7 @@ import {
   MapPin,
   LayoutTemplate,
   ImageOff,
+  X,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -49,6 +50,7 @@ function MediaImage({ url, alt }: { url: string; alt: string }) {
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   const loadImage = useCallback(async () => {
     if (!url) return;
@@ -99,12 +101,40 @@ function MediaImage({ url, alt }: { url: string; alt: string }) {
   }
 
   return (
-    <img
-      src={src ?? ""}
-      alt={alt}
-      className="max-h-64 max-w-60 rounded-lg object-cover"
-      onError={() => setError(true)}
-    />
+    <>
+      <button
+        type="button"
+        className="cursor-zoom-in focus:outline-none"
+        onClick={() => setLightboxOpen(true)}
+      >
+        <img
+          src={src ?? ""}
+          alt={alt}
+          className="max-h-64 max-w-60 rounded-lg object-cover"
+          onError={() => setError(true)}
+        />
+      </button>
+      {lightboxOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+          onClick={() => setLightboxOpen(false)}
+        >
+          <button
+            type="button"
+            className="absolute right-4 top-4 rounded-full bg-black/50 p-1.5 text-white hover:bg-black/70"
+            onClick={() => setLightboxOpen(false)}
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <img
+            src={src ?? ""}
+            alt={alt}
+            className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+    </>
   );
 }
 

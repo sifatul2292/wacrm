@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { sendTextMessage, sendTemplateMessage } from '@/lib/whatsapp/meta-api'
+import {
+  sendTextMessage,
+  sendTemplateMessage,
+  sendMediaMessage,
+  type MediaMessageType,
+} from '@/lib/whatsapp/meta-api'
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
 import {
   sanitizePhoneForMeta,
@@ -43,9 +48,14 @@ export async function POST(request: Request) {
       message_type,
       content_text,
       media_url,
+      meta_media_id,
+      media_filename,
       template_name,
       template_params,
     } = body
+
+    const MEDIA_TYPES: MediaMessageType[] = ['image', 'document', 'video', 'audio']
+    const isMediaType = MEDIA_TYPES.includes(message_type as MediaMessageType)
 
     if (!conversation_id || !message_type) {
       return NextResponse.json(
@@ -64,6 +74,13 @@ export async function POST(request: Request) {
     if (message_type === 'template' && !template_name) {
       return NextResponse.json(
         { error: 'template_name is required for template messages' },
+        { status: 400 }
+      )
+    }
+
+    if (isMediaType && !meta_media_id) {
+      return NextResponse.json(
+        { error: 'meta_media_id is required for media messages' },
         { status: 400 }
       )
     }
@@ -152,6 +169,18 @@ export async function POST(request: Request) {
           to: phone,
           templateName: template_name,
           params: template_params || [],
+        })
+        return result.messageId
+      }
+      if (isMediaType) {
+        const result = await sendMediaMessage({
+          phoneNumberId: config.phone_number_id,
+          accessToken,
+          to: phone,
+          type: message_type as MediaMessageType,
+          mediaId: meta_media_id,
+          caption: content_text || undefined,
+          filename: media_filename || undefined,
         })
         return result.messageId
       }
