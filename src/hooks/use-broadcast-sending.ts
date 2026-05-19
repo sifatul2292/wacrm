@@ -100,6 +100,7 @@ export function resolveVariables(
         phone: contact.phone,
         email: contact.email,
         company: contact.company,
+        address: contact.address,
       };
       return fieldMap[v.value] ?? '';
     }
