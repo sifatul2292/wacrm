@@ -114,7 +114,7 @@ export default function InboxPage() {
 
   // Handle realtime conversation events
   const handleConversationEvent = useCallback(
-    (event: {
+    async (event: {
       eventType: string;
       new: Conversation;
       old: Partial<Conversation>;
@@ -122,7 +122,23 @@ export default function InboxPage() {
       const conv = event.new;
 
       if (event.eventType === "INSERT") {
-        setConversations((prev) => [conv, ...prev]);
+        // Realtime INSERT payload is a raw DB row — no joined contact data.
+        // Fetch the full row immediately so the list shows the contact name
+        // instead of "Unknown" until the next manual refresh.
+        const supabase = createClient();
+        const { data: full } = await supabase
+          .from("conversations")
+          .select("*, contact:contacts(*)")
+          .eq("id", conv.id)
+          .single();
+
+        setConversations((prev) => {
+          if (prev.some((c) => c.id === conv.id)) {
+            // Already present (e.g. from a race with initial fetch) — update in place
+            return prev.map((c) => (c.id === conv.id ? (full ?? conv) : c));
+          }
+          return [full ?? conv, ...prev];
+        });
       }
 
       if (event.eventType === "UPDATE") {
