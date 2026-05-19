@@ -57,14 +57,23 @@ function normalizePhone(raw: string): string {
   return digits
 }
 
-function parseCsvLine(line: string): string[] {
+function detectDelimiter(firstLine: string): string {
+  const tabs = (firstLine.match(/\t/g) || []).length
+  const commas = (firstLine.match(/,/g) || []).length
+  const semis = (firstLine.match(/;/g) || []).length
+  if (tabs > commas && tabs > semis) return '\t'
+  if (semis > commas) return ';'
+  return ','
+}
+
+function parseCsvLine(line: string, delimiter: string): string[] {
   const values: string[] = []
   let current = ''
   let inQuotes = false
   for (const char of line) {
     if (char === '"') {
       inQuotes = !inQuotes
-    } else if (char === ',' && !inQuotes) {
+    } else if (char === delimiter && !inQuotes) {
       values.push(current.trim())
       current = ''
     } else {
@@ -76,10 +85,13 @@ function parseCsvLine(line: string): string[] {
 }
 
 function parseCSV(text: string): ParsedRow[] {
-  const lines = text.trim().split(/\r?\n/)
+  // Strip UTF-8 BOM if present (Excel adds this)
+  const clean = text.replace(/^﻿/, '').trim()
+  const lines = clean.split(/\r?\n/)
   if (lines.length < 2) return []
 
-  const headers = parseCsvLine(lines[0]).map((h) => h.toLowerCase().replace(/["']/g, '').trim())
+  const delimiter = detectDelimiter(lines[0])
+  const headers = parseCsvLine(lines[0], delimiter).map((h) => h.toLowerCase().replace(/["']/g, '').trim())
 
   const phoneIdx   = findColIdx(headers, PHONE_ALIASES)
   if (phoneIdx === -1) return []
@@ -92,7 +104,7 @@ function parseCSV(text: string): ParsedRow[] {
     const line = lines[i].trim()
     if (!line) continue
 
-    const values = parseCsvLine(line)
+    const values = parseCsvLine(line, delimiter)
 
     const rawPhone = values[phoneIdx]?.replace(/["']/g, '').trim()
     if (!rawPhone) continue
@@ -141,7 +153,12 @@ export function ImportModal({ open, onOpenChange, onImported }: ImportModalProps
     const rows = parseCSV(text);
 
     if (rows.length === 0) {
-      toast.error('No valid rows found. Ensure CSV has a "phone" column header.');
+      // Show first few detected headers to help user debug column name mismatch
+      const clean = text.replace(/^﻿/, '').trim()
+      const firstLine = clean.split(/\r?\n/)[0] || ''
+      const delim = detectDelimiter(firstLine)
+      const found = firstLine.split(delim).slice(0, 6).map(h => h.replace(/["']/g, '').trim()).join(', ')
+      toast.error(`Phone column not found. Detected headers: ${found || '(none)'}`)
       setParsedRows([]);
       return;
     }
