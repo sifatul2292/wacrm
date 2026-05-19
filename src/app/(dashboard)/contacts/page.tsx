@@ -71,6 +71,11 @@ export default function ContactsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Contact | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
+
   // All tags for display
   const [tagsMap, setTagsMap] = useState<Record<string, Tag>>({});
 
@@ -201,6 +206,36 @@ export default function ContactsPage() {
     setDeleteTarget(null);
   }
 
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds(selectedIds.size === contacts.length && contacts.length > 0
+      ? new Set()
+      : new Set(contacts.map((c) => c.id)));
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    setBulkDeleting(true);
+    const ids = [...selectedIds];
+    const { error } = await supabase.from('contacts').delete().in('id', ids);
+    if (error) {
+      toast.error('Failed to delete contacts');
+    } else {
+      toast.success(`${ids.length} contact${ids.length !== 1 ? 's' : ''} deleted`);
+      setSelectedIds(new Set());
+      fetchContacts();
+    }
+    setBulkDeleting(false);
+    setBulkDeleteConfirmOpen(false);
+  }
+
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
   const hasNext = page < totalPages - 1;
   const hasPrev = page > 0;
@@ -216,6 +251,16 @@ export default function ContactsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {selectedIds.size > 0 && (
+            <Button
+              variant="destructive"
+              onClick={() => setBulkDeleteConfirmOpen(true)}
+              className="gap-1.5"
+            >
+              <Trash2 className="size-4" />
+              Delete {selectedIds.size} selected
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={() => setImportOpen(true)}
@@ -255,10 +300,20 @@ export default function ContactsPage() {
         <Table>
           <TableHeader>
             <TableRow className="border-slate-800 hover:bg-transparent">
+              <TableHead className="w-10 pr-0">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.size === contacts.length && contacts.length > 0}
+                  onChange={toggleSelectAll}
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-800 accent-violet-500 cursor-pointer"
+                  aria-label="Select all"
+                />
+              </TableHead>
               <TableHead className="text-slate-400">Name</TableHead>
               <TableHead className="text-slate-400">Phone</TableHead>
               <TableHead className="text-slate-400 hidden md:table-cell">Email</TableHead>
               <TableHead className="text-slate-400 hidden lg:table-cell">Company</TableHead>
+              <TableHead className="text-slate-400 hidden xl:table-cell">Address</TableHead>
               <TableHead className="text-slate-400 hidden md:table-cell">Tags</TableHead>
               <TableHead className="text-slate-400 hidden lg:table-cell">Created</TableHead>
               <TableHead className="text-slate-400 w-12" />
@@ -267,7 +322,7 @@ export default function ContactsPage() {
           <TableBody>
             {loading ? (
               <TableRow className="border-slate-800">
-                <TableCell colSpan={7} className="text-center py-12">
+                <TableCell colSpan={9} className="text-center py-12">
                   <div className="flex flex-col items-center gap-2">
                     <Loader2 className="size-6 animate-spin text-violet-500" />
                     <p className="text-sm text-slate-500">Loading contacts...</p>
@@ -276,7 +331,7 @@ export default function ContactsPage() {
               </TableRow>
             ) : contacts.length === 0 ? (
               <TableRow className="border-slate-800">
-                <TableCell colSpan={7} className="text-center py-12">
+                <TableCell colSpan={9} className="text-center py-12">
                   <div className="flex flex-col items-center gap-2">
                     <Users className="size-8 text-slate-600" />
                     <p className="text-sm text-slate-500">
@@ -300,9 +355,18 @@ export default function ContactsPage() {
               contacts.map((contact) => (
                 <TableRow
                   key={contact.id}
-                  className="border-slate-800 hover:bg-slate-900/50 cursor-pointer"
+                  className={`border-slate-800 hover:bg-slate-900/50 cursor-pointer ${selectedIds.has(contact.id) ? 'bg-slate-900/40' : ''}`}
                   onClick={() => openDetail(contact.id)}
                 >
+                  <TableCell className="pr-0" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(contact.id)}
+                      onChange={() => toggleSelect(contact.id)}
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-800 accent-violet-500 cursor-pointer"
+                      aria-label={`Select ${contact.name || contact.phone}`}
+                    />
+                  </TableCell>
                   <TableCell className="text-white font-medium">
                     {contact.name || <span className="text-slate-500 italic">Unnamed</span>}
                   </TableCell>
@@ -314,6 +378,9 @@ export default function ContactsPage() {
                   </TableCell>
                   <TableCell className="text-slate-400 hidden lg:table-cell text-sm">
                     {contact.company || <span className="text-slate-600">-</span>}
+                  </TableCell>
+                  <TableCell className="text-slate-400 hidden xl:table-cell text-sm max-w-[180px] truncate">
+                    {contact.address || <span className="text-slate-600">-</span>}
                   </TableCell>
                   <TableCell className="hidden md:table-cell">
                     <div className="flex flex-wrap gap-1">
@@ -408,7 +475,7 @@ export default function ContactsPage() {
               variant="outline"
               size="icon-sm"
               disabled={!hasPrev}
-              onClick={() => setPage((p) => p - 1)}
+              onClick={() => { setPage((p) => p - 1); setSelectedIds(new Set()); }}
               className="border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-30"
             >
               <ChevronLeft className="size-4" />
@@ -420,7 +487,7 @@ export default function ContactsPage() {
               variant="outline"
               size="icon-sm"
               disabled={!hasNext}
-              onClick={() => setPage((p) => p + 1)}
+              onClick={() => { setPage((p) => p + 1); setSelectedIds(new Set()); }}
               className="border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-30"
             >
               <ChevronRight className="size-4" />
@@ -455,6 +522,35 @@ export default function ContactsPage() {
         onOpenChange={setImportOpen}
         onImported={fetchContacts}
       />
+
+      {/* Bulk Delete Confirmation */}
+      <Dialog open={bulkDeleteConfirmOpen} onOpenChange={setBulkDeleteConfirmOpen}>
+        <DialogContent className="bg-slate-900 border-slate-700 text-slate-200 sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-white">Delete {selectedIds.size} Contacts</DialogTitle>
+            <DialogDescription className="text-slate-400">
+              This will permanently delete {selectedIds.size} contact{selectedIds.size !== 1 ? 's' : ''}. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="bg-slate-900 border-slate-700">
+            <Button
+              variant="outline"
+              onClick={() => setBulkDeleteConfirmOpen(false)}
+              className="border-slate-700 text-slate-300 hover:bg-slate-800"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBulkDelete}
+              disabled={bulkDeleting}
+            >
+              {bulkDeleting && <Loader2 className="size-4 animate-spin" />}
+              Delete {selectedIds.size}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation */}
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
