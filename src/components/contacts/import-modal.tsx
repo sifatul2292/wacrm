@@ -27,54 +27,86 @@ interface ParsedRow {
   company?: string;
 }
 
-function parseCSV(text: string): ParsedRow[] {
-  const lines = text.trim().split(/\r?\n/);
-  if (lines.length < 2) return [];
+// Column aliases recognised as phone / name / email / company.
+// Lower-cased and stripped of spaces for matching.
+const PHONE_ALIASES = ['phone', 'recipient phone', 'recipientphone', 'phone number', 'phonenumber', 'mobile', 'whatsapp', 'contact']
+const NAME_ALIASES  = ['name', 'recipient name', 'recipientname', 'full name', 'fullname', 'customer name', 'customername']
+const EMAIL_ALIASES = ['email', 'e-mail', 'email address']
+const COMPANY_ALIASES = ['company', 'organization', 'organisation', 'business']
 
-  const headerLine = lines[0];
-  const headers = headerLine.split(',').map((h) => h.trim().toLowerCase().replace(/["']/g, ''));
+function findColIdx(headers: string[], aliases: string[]): number {
+  for (const alias of aliases) {
+    const idx = headers.indexOf(alias)
+    if (idx !== -1) return idx
+  }
+  return -1
+}
 
-  const phoneIdx = headers.indexOf('phone');
-  if (phoneIdx === -1) return [];
+// Normalise a phone number to E.164.
+// BD numbers: strip leading 0, prepend 880 → 01849222290 → 8801849222290
+// Already has +/country code: strip +
+function normalizePhone(raw: string): string {
+  const digits = raw.replace(/\D/g, '')
+  if (!digits) return raw
+  // Already has full country code (11+ digits starting with non-zero country code)
+  if (digits.length >= 11 && digits[0] !== '0') return digits
+  // Leading 0 — assume BD (880) — strip 0, prepend 880
+  if (digits.startsWith('0') && digits.length === 11) return '880' + digits.slice(1)
+  // 10-digit BD without leading 0
+  if (digits.length === 10 && !digits.startsWith('0')) return '880' + digits
+  return digits
+}
 
-  const nameIdx = headers.indexOf('name');
-  const emailIdx = headers.indexOf('email');
-  const companyIdx = headers.indexOf('company');
-
-  const rows: ParsedRow[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-
-    // Simple CSV parse (handles quoted fields)
-    const values: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    for (const char of line) {
-      if (char === '"') {
-        inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
-        values.push(current.trim());
-        current = '';
-      } else {
-        current += char;
-      }
+function parseCsvLine(line: string): string[] {
+  const values: string[] = []
+  let current = ''
+  let inQuotes = false
+  for (const char of line) {
+    if (char === '"') {
+      inQuotes = !inQuotes
+    } else if (char === ',' && !inQuotes) {
+      values.push(current.trim())
+      current = ''
+    } else {
+      current += char
     }
-    values.push(current.trim());
+  }
+  values.push(current.trim())
+  return values
+}
 
-    const phone = values[phoneIdx]?.replace(/["']/g, '').trim();
-    if (!phone) continue;
+function parseCSV(text: string): ParsedRow[] {
+  const lines = text.trim().split(/\r?\n/)
+  if (lines.length < 2) return []
+
+  const headers = parseCsvLine(lines[0]).map((h) => h.toLowerCase().replace(/["']/g, '').trim())
+
+  const phoneIdx   = findColIdx(headers, PHONE_ALIASES)
+  if (phoneIdx === -1) return []
+  const nameIdx    = findColIdx(headers, NAME_ALIASES)
+  const emailIdx   = findColIdx(headers, EMAIL_ALIASES)
+  const companyIdx = findColIdx(headers, COMPANY_ALIASES)
+
+  const rows: ParsedRow[] = []
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line) continue
+
+    const values = parseCsvLine(line)
+
+    const rawPhone = values[phoneIdx]?.replace(/["']/g, '').trim()
+    if (!rawPhone) continue
+    const phone = normalizePhone(rawPhone)
 
     rows.push({
       phone,
-      name: nameIdx >= 0 ? values[nameIdx]?.replace(/["']/g, '').trim() || undefined : undefined,
-      email: emailIdx >= 0 ? values[emailIdx]?.replace(/["']/g, '').trim() || undefined : undefined,
-      company:
-        companyIdx >= 0 ? values[companyIdx]?.replace(/["']/g, '').trim() || undefined : undefined,
-    });
+      name:    nameIdx    >= 0 ? values[nameIdx]?.replace(/["']/g, '').trim()    || undefined : undefined,
+      email:   emailIdx   >= 0 ? values[emailIdx]?.replace(/["']/g, '').trim()   || undefined : undefined,
+      company: companyIdx >= 0 ? values[companyIdx]?.replace(/["']/g, '').trim() || undefined : undefined,
+    })
   }
 
-  return rows;
+  return rows
 }
 
 export function ImportModal({ open, onOpenChange, onImported }: ImportModalProps) {
@@ -131,8 +163,8 @@ export function ImportModal({ open, onOpenChange, onImported }: ImportModalProps
       let imported = 0;
       let failed = 0;
 
-      // Batch insert in chunks of 50
-      const chunkSize = 50;
+      // Upsert in chunks — skip rows whose phone already exists for this user.
+      const chunkSize = 200;
       for (let i = 0; i < parsedRows.length; i += chunkSize) {
         const chunk = parsedRows.slice(i, i + chunkSize);
         const rows = chunk.map((row) => ({
@@ -145,19 +177,11 @@ export function ImportModal({ open, onOpenChange, onImported }: ImportModalProps
 
         const { data, error } = await supabase
           .from('contacts')
-          .insert(rows)
+          .upsert(rows, { onConflict: 'user_id,phone', ignoreDuplicates: true })
           .select('id');
 
         if (error) {
-          // Try individual inserts for this chunk
-          for (const row of rows) {
-            const { error: singleErr } = await supabase.from('contacts').insert(row);
-            if (singleErr) {
-              failed++;
-            } else {
-              imported++;
-            }
-          }
+          failed += chunk.length;
         } else {
           imported += data?.length ?? chunk.length;
         }
@@ -187,8 +211,9 @@ export function ImportModal({ open, onOpenChange, onImported }: ImportModalProps
         <DialogHeader>
           <DialogTitle className="text-white">Import Contacts</DialogTitle>
           <DialogDescription className="text-slate-400">
-            Upload a CSV file with a &quot;phone&quot; column (required). Optional columns:
-            name, email, company.
+            Upload a CSV file. Phone column required (accepts: phone, &quot;Recipient Phone&quot;, mobile…).
+            Optional: name / &quot;Recipient Name&quot;, email, company.
+            BD numbers (01XXXXXXXXX) auto-convert to E.164. Duplicates skipped.
           </DialogDescription>
         </DialogHeader>
 
