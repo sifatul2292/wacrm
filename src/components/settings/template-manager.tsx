@@ -425,8 +425,20 @@ export function TemplateManager() {
 
             <div className="space-y-2">
               <Label className="text-slate-300">Body Text</Label>
+              <div className="flex flex-wrap gap-1.5 pb-1">
+                {['{{name}}', '{{phone}}', '{{address}}', '{{email}}', '{{company}}'].map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, body_text: f.body_text + tag }))}
+                    className="rounded bg-violet-500/15 px-2 py-0.5 font-mono text-xs text-violet-400 hover:bg-violet-500/30 transition-colors"
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
               <Textarea
-                placeholder="Enter your template message body. Use {{1}}, {{2}} for variables."
+                placeholder="Enter your template message body. Use {{name}}, {{phone}}, {{address}} or positional {{1}}, {{2}} for variables."
                 value={form.body_text}
                 onChange={(e) => setForm({ ...form, body_text: e.target.value })}
                 rows={4}

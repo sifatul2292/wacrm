@@ -34,7 +34,11 @@ const contactFields = [
   { value: 'phone', label: 'Phone Number' },
   { value: 'email', label: 'Email Address' },
   { value: 'company', label: 'Company' },
+  { value: 'address', label: 'Address' },
 ];
+
+// Named vars that map directly to a contact field of the same name.
+const NAMED_FIELD_VARS = new Set(['name', 'phone', 'email', 'company', 'address']);
 
 const SAMPLE_CONTACT: Contact = {
   id: 'sample',
@@ -43,6 +47,7 @@ const SAMPLE_CONTACT: Contact = {
   phone: '+1234567890',
   email: 'john@example.com',
   company: 'Acme Corp',
+  address: '123 Main St, Dhaka',
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 };
@@ -105,11 +110,38 @@ export function Step3Personalize({
     };
   }, []);
 
+  // Detect all {{...}} placeholders in order of first appearance.
+  // Supports both numeric {{1}} and named {{name}}, {{address}}, etc.
   const placeholders = useMemo(() => {
-    const matches = template.body_text.match(/\{\{(\d+)\}\}/g);
-    if (!matches) return [];
-    return [...new Set(matches)].sort();
+    const seen = new Set<string>();
+    const result: string[] = [];
+    const re = /\{\{([^}]+)\}\}/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(template.body_text)) !== null) {
+      const full = m[0];
+      if (!seen.has(full)) {
+        seen.add(full);
+        result.push(full);
+      }
+    }
+    return result;
   }, [template.body_text]);
+
+  // Auto-initialise named vars to their matching contact field
+  // so the user doesn't have to manually map {{name}} → name.
+  useEffect(() => {
+    const patch: Record<string, VariableMapping> = {};
+    let changed = false;
+    for (const placeholder of placeholders) {
+      const key = placeholder.slice(2, -2);
+      if (NAMED_FIELD_VARS.has(key) && !variables[key]) {
+        patch[key] = { type: 'field', value: key };
+        changed = true;
+      }
+    }
+    if (changed) onUpdate({ ...variables, ...patch });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placeholders]);
 
   /**
    * A placeholder is "unmapped" if the user hasn't picked either a
@@ -120,7 +152,7 @@ export function Step3Personalize({
   const unmappedKeys = useMemo(() => {
     const missing: string[] = [];
     for (const placeholder of placeholders) {
-      const key = placeholder.replace(/^\{\{|\}\}$/g, '');
+      const key = placeholder.slice(2, -2);
       const mapping = variables[key];
       if (!mapping || !mapping.value?.trim()) {
         missing.push(placeholder);
@@ -137,10 +169,6 @@ export function Step3Personalize({
     });
   }
 
-  /**
-   * Substitute placeholders using the first real contact where
-   * possible. Placeholders keyed by "{{N}}" map to variable key "N".
-   */
   const previewText = useMemo(() => {
     const contact = firstContact ?? SAMPLE_CONTACT;
     const customValues = firstContact
@@ -149,7 +177,7 @@ export function Step3Personalize({
 
     let text = template.body_text;
     for (const placeholder of placeholders) {
-      const key = placeholder.replace(/^\{\{|\}\}$/g, '');
+      const key = placeholder.slice(2, -2);
       const mapping = variables[key];
       let replacement = placeholder;
 
@@ -162,6 +190,7 @@ export function Step3Personalize({
             phone: contact.phone,
             email: contact.email,
             company: contact.company,
+            address: contact.address,
           };
           replacement = fieldMap[mapping.value] ?? placeholder;
         } else if (mapping.type === 'custom_field' && mapping.value) {
@@ -189,7 +218,7 @@ export function Step3Personalize({
         <h2 className="text-lg font-semibold text-white">Personalize Message</h2>
         <p className="mt-1 text-sm text-slate-400">
           Map template variables to contact fields, custom fields, or static
-          values.
+          values. Named placeholders like <span className="font-mono text-violet-400">{'{{name}}'}</span> are auto-mapped.
         </p>
       </div>
 
@@ -202,8 +231,9 @@ export function Step3Personalize({
       ) : (
         <div className="space-y-4">
           {placeholders.map((placeholder) => {
-            const key = placeholder.replace(/^\{\{|\}\}$/g, '');
+            const key = placeholder.slice(2, -2);
             const mapping = variables[key] ?? { type: 'static', value: '' };
+            const isNamedField = NAMED_FIELD_VARS.has(key);
 
             return (
               <div
@@ -214,6 +244,9 @@ export function Step3Personalize({
                   <span className="inline-flex items-center rounded-md bg-violet-500/10 px-2 py-0.5 text-xs font-mono font-medium text-violet-400">
                     {placeholder}
                   </span>
+                  {isNamedField && (
+                    <span className="text-xs text-slate-500">auto-mapped</span>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -309,8 +342,7 @@ export function Step3Personalize({
         </div>
       )}
 
-      {/* Live Preview — rendered as a WhatsApp-style bubble so the user
-          sees approximately what the recipient will see. */}
+      {/* Live Preview */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
         <div className="mb-3 flex items-center gap-2">
           <Eye className="h-4 w-4 text-violet-400" />

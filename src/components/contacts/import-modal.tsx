@@ -25,14 +25,16 @@ interface ParsedRow {
   name?: string;
   email?: string;
   company?: string;
+  address?: string;
 }
 
-// Column aliases recognised as phone / name / email / company.
+// Column aliases recognised as phone / name / email / company / address.
 // Lower-cased and stripped of spaces for matching.
 const PHONE_ALIASES = ['phone', 'recipient phone', 'recipientphone', 'phone number', 'phonenumber', 'mobile', 'whatsapp', 'contact']
 const NAME_ALIASES  = ['name', 'recipient name', 'recipientname', 'full name', 'fullname', 'customer name', 'customername']
 const EMAIL_ALIASES = ['email', 'e-mail', 'email address']
 const COMPANY_ALIASES = ['company', 'organization', 'organisation', 'business']
+const ADDRESS_ALIASES = ['address', 'recipient address', 'recipientaddress', 'delivery address', 'deliveryaddress', 'shipping address', 'shippingaddress']
 
 function findColIdx(headers: string[], aliases: string[]): number {
   for (const alias of aliases) {
@@ -143,6 +145,7 @@ function parseCSV(text: string): ParsedRow[] {
   let nameIdx    = findColIdx(firstLineCells, NAME_ALIASES)
   let emailIdx   = findColIdx(firstLineCells, EMAIL_ALIASES)
   let companyIdx = findColIdx(firstLineCells, COMPANY_ALIASES)
+  let addressIdx = findColIdx(firstLineCells, ADDRESS_ALIASES)
   let dataStartLine = 1
 
   // Fallback: no header row — detect columns by data patterns
@@ -152,6 +155,7 @@ function parseCSV(text: string): ParsedRow[] {
     nameIdx    = detectNameColumnByData(lines, delimiter, phoneIdx)
     emailIdx   = -1
     companyIdx = -1
+    addressIdx = -1
     dataStartLine = 0 // first line is data, not headers
   }
 
@@ -172,6 +176,7 @@ function parseCSV(text: string): ParsedRow[] {
       name:    nameIdx    >= 0 ? values[nameIdx]?.replace(/["']/g, '').trim()    || undefined : undefined,
       email:   emailIdx   >= 0 ? values[emailIdx]?.replace(/["']/g, '').trim()   || undefined : undefined,
       company: companyIdx >= 0 ? values[companyIdx]?.replace(/["']/g, '').trim() || undefined : undefined,
+      address: addressIdx >= 0 ? values[addressIdx]?.replace(/["']/g, '').trim() || undefined : undefined,
     })
   }
 
@@ -247,6 +252,7 @@ export function ImportModal({ open, onOpenChange, onImported }: ImportModalProps
           name: row.name || null,
           email: row.email || null,
           company: row.company || null,
+          address: row.address || null,
         }));
 
         const { data, error } = await supabase
