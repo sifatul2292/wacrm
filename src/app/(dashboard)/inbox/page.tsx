@@ -8,6 +8,7 @@ import { useRealtime } from "@/hooks/use-realtime";
 import { ConversationList } from "@/components/inbox/conversation-list";
 import { MessageThread } from "@/components/inbox/message-thread";
 import { ContactSidebar } from "@/components/inbox/contact-sidebar";
+import { NewConversationModal } from "@/components/inbox/new-conversation-modal";
 import { toast } from "sonner";
 import { WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -30,6 +31,7 @@ export default function InboxPage() {
   const [whatsappConnected, setWhatsappConnected] = useState<boolean | null>(
     null
   );
+  const [newConvOpen, setNewConvOpen] = useState(false);
 
   // Fire the deep-link auto-select exactly once per URL — subsequent
   // list refreshes (realtime, manual refetch) must not snap the user
@@ -327,6 +329,7 @@ export default function InboxPage() {
             onSelect={handleSelectConversation}
             conversations={conversations}
             onConversationsLoaded={handleConversationsLoaded}
+            onNewConversation={() => setNewConvOpen(true)}
           />
         </div>
 
@@ -358,6 +361,8 @@ export default function InboxPage() {
           <ContactSidebar contact={activeContact} />
         </div>
       </div>
+
+      <NewConversationModal open={newConvOpen} onOpenChange={setNewConvOpen} />
     </div>
   );
 }

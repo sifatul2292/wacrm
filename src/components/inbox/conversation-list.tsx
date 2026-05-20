@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationStatus } from "@/types";
-import { Search, ChevronDown } from "lucide-react";
+import { Search, ChevronDown, SquarePen } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Input } from "@/components/ui/input";
 import {
@@ -21,6 +21,7 @@ interface ConversationListProps {
   onSelect: (conversation: Conversation) => void;
   conversations: Conversation[];
   onConversationsLoaded: (conversations: Conversation[]) => void;
+  onNewConversation?: () => void;
 }
 
 const STATUS_COLORS: Record<ConversationStatus, string> = {
@@ -41,6 +42,7 @@ export function ConversationList({
   onSelect,
   conversations,
   onConversationsLoaded,
+  onNewConversation,
 }: ConversationListProps) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ConversationStatus | "all">("all");
@@ -139,14 +141,27 @@ export function ConversationList({
     <div className="flex h-full w-full flex-col border-r border-slate-800 bg-slate-900 lg:w-80">
       {/* Search + Filter */}
       <div className="space-y-2 border-b border-slate-800 p-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-          <Input
-            value={search}
-            onChange={handleSearchChange}
-            placeholder="Search conversations..."
-            className="border-slate-700 bg-slate-800 pl-9 text-sm text-white placeholder-slate-500 focus:border-violet-500/50"
-          />
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <Input
+              value={search}
+              onChange={handleSearchChange}
+              placeholder="Search conversations..."
+              className="border-slate-700 bg-slate-800 pl-9 text-sm text-white placeholder-slate-500 focus:border-violet-500/50"
+            />
+          </div>
+          {onNewConversation && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onNewConversation}
+              className="shrink-0 text-slate-400 hover:bg-slate-800 hover:text-violet-400"
+              title="New conversation"
+            >
+              <SquarePen className="h-4 w-4" />
+            </Button>
+          )}
         </div>
 
         <DropdownMenu>
